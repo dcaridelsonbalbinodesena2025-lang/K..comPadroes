@@ -29,6 +29,11 @@
         
         #timer-box { position: absolute; right: 15px; top: 15px; background: rgba(17, 21, 28, 0.95); padding: 10px 20px; border-radius: 8px; border: 2px solid var(--blue); text-align: center; }
         #timer { font-size: 22px; font-weight: bold; font-family: monospace; display: block; }
+        
+        /* NOVO CRONOMETRO ESTILO */
+        #stopwatch-box { position: absolute; right: 145px; top: 15px; background: rgba(17, 21, 28, 0.95); padding: 10px 20px; border-radius: 8px; border: 2px solid var(--green); text-align: center; cursor: pointer; user-select: none; }
+        #stopwatch { font-size: 22px; font-weight: bold; font-family: monospace; display: block; color: var(--green); }
+
         #placar { position: absolute; top: 115px; left: 15px; background: rgba(17,21,28,0.85); padding: 10px; border-radius: 8px; font-size: 13px; border: 1px solid #333; display: flex; gap: 15px; }
         #trend-info { position: absolute; top: 75px; left: 15px; background: rgba(17, 21, 28, 0.8); padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: bold; width: 240px; border-left: 4px solid var(--blue); }
         
@@ -56,6 +61,11 @@
     </div>
     <div class="asset-menu interactive" id="menu"></div>
     <div id="trend-info" class="interactive">ANALISANDO MERCADO...</div>
+    
+    <div id="stopwatch-box" class="interactive" onclick="toggleStopwatch()" ondblclick="resetStopwatch()">
+        <span style="font-size:9px">CRONÔMETRO</span><b id="stopwatch">00:00</b>
+    </div>
+
     <div id="timer-box"><span style="font-size:9px">VELA EM</span><b id="timer">00:00</b></div>
     <div id="placar" class="interactive">
         <div style="color:var(--green)">WIN: <b id="win-c">0</b></div>
@@ -74,6 +84,27 @@
     const timerTxt = document.getElementById('timer');
     const trendDisplay = document.getElementById('trend-info');
     const signalAlert = document.getElementById('signal-alert');
+
+    // VARIAVEIS DO CRONOMETRO NOVO
+    const stopwatchTxt = document.getElementById('stopwatch');
+    let swTime = 0, swInterval = null, swRunning = false;
+
+    function toggleStopwatch() {
+        if(swRunning) { clearInterval(swInterval); swRunning = false; stopwatchTxt.style.color = 'var(--yellow)'; }
+        else {
+            swRunning = true; stopwatchTxt.style.color = 'var(--green)';
+            swInterval = setInterval(() => {
+                swTime++;
+                let m = Math.floor(swTime/60).toString().padStart(2,'0');
+                let s = (swTime%60).toString().padStart(2,'0');
+                stopwatchTxt.innerText = `${m}:${s}`;
+            }, 1000);
+        }
+    }
+    function resetStopwatch() {
+        clearInterval(swInterval); swTime = 0; swRunning = false;
+        stopwatchTxt.innerText = "00:00"; stopwatchTxt.style.color = 'var(--green)';
+    }
 
     let bancaAtual = 1000.00, payoutAtivo = 85, percentualUso = 1, valorApostaAtual = 0;
     let wins = 0, losses = 0, emGale = 0, sinalPendente = null, operacaoAtiva = null;
@@ -311,13 +342,11 @@
         requestAnimationFrame(draw);
     }
 
-    // --- CONTROLES DE PC ADICIONADOS ---
     canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
     window.addEventListener('mousemove', e => { if(isDragging) { dragX += e.clientX - lastX; dragY += e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; } });
     window.addEventListener('mouseup', () => isDragging = false);
     canvas.addEventListener('wheel', e => { e.preventDefault(); const delta = e.deltaY > 0 ? 0.9 : 1.1; spacing = Math.min(Math.max(spacing * delta, 5), 150); zoomY = Math.min(Math.max(zoomY * delta, 0.1), 30); }, { passive: false });
 
-    // Mantendo suporte para Touch
     canvas.addEventListener('touchstart', e => { isDragging = true; if(e.touches.length === 1) { lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; } else if (e.touches.length === 2) { lastDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); } });
     canvas.addEventListener('touchmove', e => { e.preventDefault(); if(e.touches.length === 1 && isDragging) { dragX += e.touches[0].clientX - lastX; dragY += e.touches[0].clientY - lastY; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; } else if (e.touches.length === 2) { let dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); let delta = dist / lastDist; spacing = Math.min(Math.max(spacing * delta, 5), 400); zoomY = Math.min(Math.max(zoomY * delta, 0.1), 30); lastDist = dist; } }, { passive: false });
     canvas.addEventListener('touchend', () => { isDragging = false; });
