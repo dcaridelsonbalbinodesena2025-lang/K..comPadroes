@@ -32,12 +32,10 @@
         #placar { position: absolute; top: 115px; left: 15px; background: rgba(17,21,28,0.85); padding: 10px; border-radius: 8px; font-size: 13px; border: 1px solid #333; display: flex; gap: 15px; }
         #trend-info { position: absolute; top: 75px; left: 15px; background: rgba(17, 21, 28, 0.8); padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: bold; width: 240px; border-left: 4px solid var(--blue); }
         
-        #signal-alert { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 50px; font-weight: bold; text-shadow: 0 0 20px #000; z-index: 2000; pointer-events: none; display: none; text-align: center; animation: alertAnim 0.5s infinite alternate; }
-        @keyframes alertAnim { from { scale: 1; } to { scale: 1.1; } }
+        #signal-alert { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 55px; font-weight: bold; text-shadow: 0 0 20px #000; z-index: 2000; pointer-events: none; display: none; text-align: center; }
 
         #price-tag { position: absolute; right: 0; padding: 6px 12px; font-family: monospace; font-weight: bold; font-size: 16px; border-radius: 6px 0 0 6px; z-index: 100; color: #000; pointer-events: none; }
-        /* Cursor alterado para indicar que o gráfico pode ser arrastado no PC */
-        canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+        canvas { display: block; width: 100vw; height: 100vh; }
     </style>
 </head>
 <body>
@@ -81,62 +79,53 @@
     let wins = 0, losses = 0, emGale = 0, sinalPendente = null, operacaoAtiva = null;
     let history = [], current = null, lastPrice = 0, socket = null;
     
-    // VELAS GIGANTES AJUSTADAS
-    let spacing = 45, dragX = 0, dragY = 0, zoomY = 3.5;
+    let spacing = 20, dragX = 0, dragY = 0, zoomY = 1.9;
     let lastX, lastY, isDragging = false, lastDist = 0;
     let resistances = [], supports = [], lastMinute = -1;
     let zigzagPoints = [], fractals = [], lta = null, ltb = null;
-    
-    // VARIÁVEIS DE VISUAL
     let pulseOpacity = 1, pulseDir = -0.05;
-    let lastPatternIndex = -1; // Para manter a borda amarela
 
     function analyzeCandlePatterns(list, idx) {
-        if(list.length < 15 || idx < 1) return null;
+        if(list.length < 5 || idx < 1) return null;
         const last = list[idx];
         const prev = list[idx - 1];
         const body = Math.abs(last.close - last.open);
         const upperWick = last.high - Math.max(last.open, last.close);
         const lowerWick = Math.min(last.open, last.close) - last.low;
         const fullSize = last.high - last.low;
-        const ema = getEMA(list.slice(0, idx), 20);
 
-        if (last.close < ema) {
-            if (lowerWick > body * 2 && upperWick < body * 0.5) return { name: "MARTELO", dir: "CALL", type: "single" };
-            if (upperWick > body * 2 && lowerWick < body * 0.5) return { name: "MARTELO INV.", dir: "CALL", type: "single" };
-            if (last.close > last.open && prev.open > prev.close && last.close > prev.open) return { name: "ENGOLFO ALTA", dir: "CALL", type: "double" };
-        } 
-        else {
-            if (lowerWick > body * 2 && upperWick < body * 0.5) return { name: "ENFORCADO", dir: "PUT", type: "single" };
-            if (upperWick > body * 2 && lowerWick < body * 0.5) return { name: "ESTRELA", dir: "PUT", type: "single" };
-            if (last.open > last.close && prev.close > prev.open && last.close < prev.open) return { name: "ENGOLFO BAIXA", dir: "PUT", type: "double" };
-        }
-        if (body > fullSize * 0.9 && body > 0) return { name: "FORÇA", dir: last.close > last.open ? "CALL" : "PUT", type: "single" };
-        if (body < (fullSize * 0.1)) return { name: "DOJI", dir: null, type: "single" };
+        const isLow = last.low <= Math.min(prev.low, list[idx-2]?.low || 999999);
+        const isHigh = last.high >= Math.max(prev.high, list[idx-2]?.high || 0);
+
+        if (lowerWick > body * 2 && upperWick < body * 0.5 && isLow) return { name: "MARTELO", dir: "CALL" };
+        if (upperWick > body * 2 && lowerWick < body * 0.5 && isLow) return { name: "MARTELO INV.", dir: "CALL" };
+        if (last.close > last.open && prev.open > prev.close && last.close > prev.open) return { name: "ENGOLFO ALTA", dir: "CALL" };
+        if (last.close > last.open && prev.open > prev.close && last.close > (prev.open + prev.close)/2 && last.open < prev.close) return { name: "PIERCING", dir: "CALL" };
+        if (body > fullSize * 0.8 && last.close > last.open) return { name: "FORÇA ALTA", dir: "CALL" };
+
+        if (lowerWick > body * 2 && upperWick < body * 0.5 && isHigh) return { name: "ENFORCADO", dir: "PUT" };
+        if (upperWick > body * 2 && lowerWick < body * 0.5 && isHigh) return { name: "ESTRELA", dir: "PUT" };
+        if (last.open > last.close && prev.close > prev.open && last.close < prev.open) return { name: "ENGOLFO BAIXA", dir: "PUT" };
+        if (last.open > last.close && prev.close > prev.open && last.close < (prev.open + prev.close)/2 && last.open > prev.close) return { name: "NUVEM NEGRA", dir: "PUT" };
+        if (body > fullSize * 0.8 && last.close < last.open) return { name: "FORÇA BAIXA", dir: "PUT" };
+
+        if (body < (fullSize * 0.1)) return { name: "DOJI", dir: null };
         return null;
     }
 
-    function getEMA(data, period) {
-        if(data.length < period) return data[data.length-1]?.close || 0;
-        let k = 2 / (period + 1);
-        let ema = data[0].close;
-        for(let i=1; i < data.length; i++) { ema = data[i].close * k + ema * (1 - k); }
-        return ema;
+    function showScreenMsg(txt, color) {
+        signalAlert.innerText = txt;
+        signalAlert.style.color = color;
+        signalAlert.style.display = 'block';
+        setTimeout(() => { signalAlert.style.display = 'none'; }, 4000);
     }
 
     function detectTrend() {
         if(history.length < 20) return "ESTÁVEL";
-        const emaS = getEMA(history, 9);
-        const emaL = getEMA(history, 21);
-        const status = Math.abs(emaS - emaL) > (emaL * 0.0001) ? "BOM ✅" : "RUIM ⚠️";
-        return (emaS > emaL ? "ALTA 📈" : "BAIXA 📉") + " | STATUS: " + status;
-    }
-
-    function flashResult(txt, color) {
-        signalAlert.innerText = txt;
-        signalAlert.style.color = color;
-        signalAlert.style.display = 'block';
-        setTimeout(() => { if(!sinalPendente && !operacaoAtiva) signalAlert.style.display = 'none'; }, 4000);
+        const sum = history.slice(-10).reduce((a, b) => a + (b.close > b.open ? 1 : -1), 0);
+        if(sum > 2) return "TENDÊNCIA: ALTA 📈";
+        if(sum < -2) return "TENDÊNCIA: BAIXA 📉";
+        return "MERCADO LATERALIZADO";
     }
 
     function updateFinanceUI() {
@@ -160,8 +149,12 @@
         const all = [...history, current];
         fractals = [];
         for(let i = 2; i < all.length - 2; i++) {
-            if(all[i].high > all[i-1].high && all[i].high > all[i-2].high && all[i].high > all[i+1].high && all[i].high > all[i+2].high) fractals.push({ index: i, type: 'top', price: all[i].high });
-            if(all[i].low < all[i-1].low && all[i].low < all[i-2].low && all[i].low < all[i+1].low && all[i].low < all[i+2].low) fractals.push({ index: i, type: 'bottom', price: all[i].low });
+            if(all[i].high > all[i-1].high && all[i].high > all[i-2].high && all[i].high > all[i+1].high && all[i].high > all[i+2].high) {
+                fractals.push({ index: i, type: 'top', price: all[i].high });
+            }
+            if(all[i].low < all[i-1].low && all[i].low < all[i-2].low && all[i].low < all[i+1].low && all[i].low < all[i+2].low) {
+                fractals.push({ index: i, type: 'bottom', price: all[i].low });
+            }
         }
         zigzagPoints = [];
         let lastType = null;
@@ -180,52 +173,23 @@
     }
 
     const LISTA_COMPLETA = [
-            { id: "NONE", nome: "❌ DESATIVAR SLOT" },
-            { id: "1HZ10V", nome: "📈 Volatility 10 (1s)" },
-            { id: "1HZ25V", nome: "📈 Volatility 25 (1s)" },
-            { id: "1HZ50V", nome: "📈 Volatility 50 (1s)" },
-            { id: "1HZ75V", nome: "📈 Volatility 75 (1s)" },
-            { id: "1HZ100V", nome: "📈 Volatility 100 (1s)" },
-            { id: "R_10", nome: "📊 Volatility 10" },
-            { id: "R_25", nome: "📊 Volatility 25" },
-            { id: "R_50", nome: "📊 Volatility 50" },
-            { id: "R_75", nome: "📊 Volatility 75" },
-            { id: "R_100", nome: "📊 Volatility 100" },
-            { id: "JD10", nome: "🚀 Jump 10" },
-            { id: "JD25", nome: "🚀 Jump 25" },
-            { id: "JD50", nome: "🚀 Jump 50" },
-            { id: "JD75", nome: "🚀 Jump 75" },
-            { id: "JD100", nome: "🚀 Jump 100" },
-            { id: "BOOM300", nome: "💥 Boom 300" },
-            { id: "BOOM500", nome: "💥 Boom 500" },
-            { id: "BOOM1000", nome: "💥 Boom 1000" },
-            { id: "CRASH300", nome: "📉 Crash 300" },
-            { id: "CRASH500", nome: "📉 Crash 500" },
-            { id: "CRASH1000", nome: "📉 Crash 1000" },
-            { id: "ST50", nome: "🎢 Step Index" },
-            { id: "frxEURUSD", nome: "💱 EUR/USD" },
-            { id: "frxGBPUSD", nome: "💱 GBP/USD" },
-            { id: "frxUSDJPY", nome: "💱 USD/JPY" },
-            { id: "frxAUDUSD", nome: "💱 AUD/USD" },
-            { id: "frxUSDCAD", nome: "💱 USD/CAD" },
-            { id: "frxUSDCHF", nome: "💱 USD/CHF" },
-            { id: "frxEURGBP", nome: "💱 EUR/GBP" },
-            { id: "frxEURJPY", nome: "💱 EUR/JPY" },
-            { id: "frxGBPJPY", nome: "💱 GBP/JPY" },
-            { id: "frxXAUUSD", nome: "🪙 OURO (XAU)" },
-            { id: "frxXAGUSD", nome: "🥈 PRATA (XAG)" },
-            { id: "cryBTCUSD", nome: "₿ BITCOIN" },
-            { id: "cryETHUSD", nome: "♢ ETHEREUM" }
+        { id: "NONE", nome: "❌ DESATIVAR SLOT" }, { id: "1HZ10V", nome: "📈 Volatility 10 (1s)" }, { id: "1HZ25V", nome: "📈 Volatility 25 (1s)" }, { id: "1HZ50V", nome: "📈 Volatility 50 (1s)" }, { id: "1HZ75V", nome: "📈 Volatility 75 (1s)" }, { id: "1HZ100V", nome: "📈 Volatility 100 (1s)" }, { id: "R_10", nome: "📊 Volatility 10" }, { id: "R_25", nome: "📊 Volatility 25" }, { id: "R_50", nome: "📊 Volatility 50" }, { id: "R_75", nome: "📊 Volatility 75" }, { id: "R_100", nome: "📊 Volatility 100" }, { id: "JD10", nome: "🚀 Jump 10" }, { id: "JD25", nome: "🚀 Jump 25" }, { id: "JD50", nome: "🚀 Jump 50" }, { id: "JD75", nome: "🚀 Jump 75" }, { id: "JD100", nome: "🚀 Jump 100" }, { id: "BOOM300", nome: "💥 Boom 300" }, { id: "BOOM500", nome: "💥 Boom 500" }, { id: "BOOM1000", nome: "💥 Boom 1000" }, { id: "CRASH300", nome: "📉 Crash 300" }, { id: "CRASH500", nome: "📉 Crash 500" }, { id: "CRASH1000", nome: "📉 Crash 1000" }, { id: "ST50", nome: "🎢 Step Index" }, { id: "frxEURUSD", nome: "💱 EUR/USD" }, { id: "frxGBPUSD", nome: "💱 GBP/USD" }, { id: "frxUSDJPY", nome: "💱 USD/JPY" }, { id: "frxAUDUSD", nome: "💱 AUD/USD" }, { id: "frxUSDCAD", nome: "💱 USD/CAD" }, { id: "frxUSDCHF", nome: "💱 USD/CHF" }, { id: "frxEURGBP", nome: "💱 EUR/GBP" }, { id: "frxEURJPY", nome: "💱 EUR/JPY" }, { id: "frxGBPJPY", nome: "💱 GBP/JPY" }, { id: "frxXAUUSD", nome: "🪙 OURO (XAU)" }, { id: "frxXAGUSD", nome: "🥈 PRATA (XAG)" }, { id: "cryBTCUSD", nome: "₿ BITCOIN" }, { id: "cryETHUSD", nome: "♢ ETHEREUM" }
     ];
 
     const menu = document.getElementById('menu');
     LISTA_COMPLETA.forEach(ativo => {
-        const div = document.createElement('div'); div.className = 'item'; div.innerHTML = ativo.nome;
-        div.onclick = () => { document.getElementById('asset-display').innerText = ativo.nome; history = []; current = null; toggleMenu(); connect(ativo.id); };
+        const div = document.createElement('div');
+        div.className = 'item'; div.innerHTML = ativo.nome;
+        div.onclick = () => sel(ativo.id, ativo.nome);
         menu.appendChild(div);
     });
 
     function toggleMenu() { menu.classList.toggle('open'); }
+    function sel(id, nome) { 
+        document.getElementById('asset-display').innerText = nome;
+        history = []; current = null; zigzagPoints = []; toggleMenu();
+        if(id !== "NONE") connect(id);
+    }
 
     function updateAnalisis() {
         if (history.length < 20) return;
@@ -238,7 +202,7 @@
         resistances = [...new Set(topos)].sort((a,b) => b-a).slice(0, 3);
         supports = [...new Set(fundos)].sort((a,b) => a-b).slice(0, 3);
         calculateIndicators();
-        trendDisplay.innerText = detectTrend();
+        trendDisplay.innerText = detectTrend() + " | STATUS: " + (history.length > 30 ? "OTIMO" : "AGUARDE");
     }
 
     function connect(symbol) {
@@ -253,22 +217,28 @@
                 const now = new Date(); const sec = now.getSeconds();
                 if (lastMinute !== -1 && now.getMinutes() !== lastMinute) {
                     if (operacaoAtiva) validarResultado(current);
+                    
                     if (sinalPendente) {
                         valorApostaAtual = emGale === 0 ? (bancaAtual * (percentualUso / 100)) : valorApostaAtual * 2;
                         bancaAtual -= valorApostaAtual; updateFinanceUI();
-                        operacaoAtiva = { dir: sinalPendente.dir, precoEntrada: lastPrice, valorRiscado: valorApostaAtual, patternIdx: sinalPendente.index };
+                        operacaoAtiva = { dir: sinalPendente.dir, precoEntrada: lastPrice, valorRiscado: valorApostaAtual };
                         sinalPendente = null; signalAlert.style.display = 'none';
                     }
+
                     if (current && !operacaoAtiva && emGale === 0) {
                         history.push({...current});
                         const pattern = analyzeCandlePatterns(history, history.length - 1);
                         if(pattern && pattern.dir) {
-                            sinalPendente = { dir: pattern.dir, name: pattern.name, index: history.length - 1, type: pattern.type };
-                            lastPatternIndex = history.length - 1;
+                            sinalPendente = { dir: pattern.dir, name: pattern.name };
                             document.getElementById('gale-txt').innerText = "GATILHO: " + pattern.name;
-                            flashResult(pattern.dir + "!", pattern.dir === "CALL" ? "var(--green)" : "var(--red)");
-                        } else { document.getElementById('gale-txt').innerText = "AGUARDANDO PADRÃO"; }
-                    } else if (current) { history.push({...current}); }
+                            showScreenMsg(pattern.dir + "!", pattern.dir === "CALL" ? "var(--green)" : "var(--red)");
+                        } else {
+                            document.getElementById('gale-txt').innerText = "AGUARDANDO PADRÃO";
+                        }
+                    } else if (current) {
+                        history.push({...current});
+                    }
+                    
                     current = { time: data.ohlc.open_time, open: lastPrice, high: lastPrice, low: lastPrice, close: lastPrice };
                     updateAnalisis();
                 } else if(current) { current.close = lastPrice; current.high = Math.max(current.high, lastPrice); current.low = Math.min(current.low, lastPrice); }
@@ -281,14 +251,23 @@
     function validarResultado(v) {
         const win = (operacaoAtiva.dir === 'CALL' && v.close > operacaoAtiva.precoEntrada) || (operacaoAtiva.dir === 'PUT' && v.close < operacaoAtiva.precoEntrada);
         if(win) { 
-            wins++; bancaAtual += (operacaoAtiva.valorRiscado + (operacaoAtiva.valorRiscado * (payoutAtivo/100))); 
-            flashResult(emGale === 0 ? "✅ GREEN!" : "✅ GALE GREEN!", "var(--green)");
-            emGale = 0; lastPatternIndex = -1;
-        } else if(emGale < 2) { 
-            emGale++; sinalPendente = { dir: operacaoAtiva.dir, index: operacaoAtiva.patternIdx }; 
-            flashResult(`⚠️ GALE ${emGale}`, "var(--yellow)");
-        } else { 
-            losses++; emGale = 0; lastPatternIndex = -1; flashResult("❌ LOSS", "var(--red)");
+            wins++; 
+            bancaAtual += (operacaoAtiva.valorRiscado + (operacaoAtiva.valorRiscado * (payoutAtivo/100))); 
+            showScreenMsg("GREEN!", "var(--green)");
+            emGale = 0; 
+            document.getElementById('gale-txt').innerText = "WIN! 🚀";
+        }
+        else if(emGale < 2) { 
+            emGale++; 
+            sinalPendente = { dir: operacaoAtiva.dir, name: "GALE " + emGale }; 
+            showScreenMsg("GALE " + emGale, "var(--yellow)");
+            document.getElementById('gale-txt').innerText = "GALE " + emGale;
+        }
+        else { 
+            losses++; 
+            emGale = 0; 
+            showScreenMsg("RED / LOSS", "var(--red)");
+            document.getElementById('gale-txt').innerText = "LOSS ❌";
         }
         operacaoAtiva = null; updateFinanceUI();
         document.getElementById('win-c').innerText = wins; document.getElementById('loss-c').innerText = losses;
@@ -297,100 +276,52 @@
     function draw() {
         canvas.width = window.innerWidth; canvas.height = window.innerHeight;
         if(!current) { requestAnimationFrame(draw); return; }
-        
         pulseOpacity += pulseDir;
         if(pulseOpacity <= 0.3 || pulseOpacity >= 1) pulseDir *= -1;
-
         const all = [...history, current];
         const prices = all.flatMap(c => [c.high, c.low]);
         const maxP = Math.max(...prices), minP = Math.min(...prices), range = (maxP - minP) || 0.0001;
-        const scaleY = (canvas.height * 0.9 / range) * zoomY, centerY = canvas.height / 2 + dragY, midP = (maxP + minP) / 2, offX = (canvas.width - 150) - (all.length * spacing) + dragX;
+        const scaleY = (canvas.height * 0.7 / range) * zoomY, centerY = canvas.height / 2 + dragY, midP = (maxP + minP) / 2, offX = (canvas.width - 150) - (all.length * spacing) + dragX;
 
-        // SUPORTE E RESISTÊNCIA
         resistances.forEach(r => { ctx.setLineDash([5, 5]); ctx.strokeStyle = "rgba(255, 51, 85, 0.4)"; ctx.beginPath(); ctx.moveTo(0, centerY + (midP - r) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - r) * scaleY); ctx.stroke(); });
         supports.forEach(s => { ctx.setLineDash([5, 5]); ctx.strokeStyle = "rgba(0, 255, 136, 0.4)"; ctx.beginPath(); ctx.moveTo(0, centerY + (midP - s) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - s) * scaleY); ctx.stroke(); });
 
-        // MÉDIA MÓVEL
-        ctx.setLineDash([]); ctx.strokeStyle = "var(--blue)"; ctx.lineWidth = 2; ctx.beginPath();
-        all.forEach((c, i) => { const ev = getEMA(all.slice(0, i+1), 20); const x = offX + (i * spacing), y = centerY + (midP - ev) * scaleY; if(i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }); ctx.stroke();
+        ctx.setLineDash([]); ctx.lineWidth = 1;
+        if(lta) { ctx.strokeStyle = "rgba(0, 255, 136, 0.6)"; ctx.beginPath(); ctx.moveTo(offX + lta.p1.index * spacing, centerY + (midP - lta.p1.price) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - lta.p2.price) * scaleY); ctx.stroke(); }
+        if(ltb) { ctx.strokeStyle = "rgba(255, 51, 85, 0.6)"; ctx.beginPath(); ctx.moveTo(offX + ltb.p1.index * spacing, centerY + (midP - ltb.p1.price) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - ltb.p2.price) * scaleY); ctx.stroke(); }
 
-        // LTA E LTB
-        ctx.lineWidth = 1;
-        if(lta) { ctx.strokeStyle = "rgba(0, 255, 136, 0.6)"; ctx.beginPath(); ctx.moveTo(offX + lta.p1.index * spacing, centerY + (midP - lta.p1.price) * scaleY); ctx.lineTo(offX + lta.p2.index * spacing, centerY + (midP - lta.p2.price) * scaleY); ctx.stroke(); }
-        if(ltb) { ctx.strokeStyle = "rgba(255, 51, 85, 0.6)"; ctx.beginPath(); ctx.moveTo(offX + ltb.p1.index * spacing, centerY + (midP - ltb.p1.price) * scaleY); ctx.lineTo(offX + ltb.p2.index * spacing, centerY + (midP - ltb.p2.price) * scaleY); ctx.stroke(); }
-
-        // CANDLES
         all.forEach((c, i) => {
             const x = offX + (i * spacing), yO = centerY + (midP - c.open) * scaleY, yC = centerY + (midP - c.close) * scaleY, yH = centerY + (midP - c.high) * scaleY, yL = centerY + (midP - c.low) * scaleY;
-            
-            // LOGICA DE VISUAL: BORDA AMARELA NO PADRÃO E PISCAR NO GATILHO
-            const isPattern = (i === lastPatternIndex);
-            const isGatilho = (operacaoAtiva && i === all.length-1) || (sinalPendente && i === all.length-1);
-
-            if(isGatilho) ctx.globalAlpha = pulseOpacity;
-            
+            const isGatilho = (sinalPendente && i === history.length);
             ctx.strokeStyle = c.close >= c.open ? "#00ff88" : "#ff3355";
-            ctx.lineWidth = 2;
+            if(isGatilho) ctx.globalAlpha = pulseOpacity;
             ctx.beginPath(); ctx.moveTo(x, yH); ctx.lineTo(x, yL); ctx.stroke();
-            
-            ctx.fillStyle = ctx.strokeStyle;
-            const bodyW = spacing * 0.8;
-            const bodyH = Math.max(2, Math.abs(yO - yC));
-            const bodyY = Math.min(yO, yC);
-            
-            ctx.fillRect(x - bodyW/2, bodyY, bodyW, bodyH);
-
-            // BORDA AMARELA NO PADRÃO (E VELA ANTERIOR SE FOR DOUBLE)
-            if(isPattern) {
-                ctx.strokeStyle = "var(--yellow)";
-                ctx.lineWidth = 3;
-                ctx.strokeRect(x - bodyW/2, bodyY, bodyW, bodyH);
-            }
-
+            ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(x - (spacing*0.7)/2, Math.min(yO, yC), spacing*0.7, Math.max(2, Math.abs(yO - yC)));
+            if(isGatilho) { ctx.shadowBlur = 15; ctx.shadowColor = ctx.fillStyle; ctx.strokeRect(x - (spacing*0.7)/2, Math.min(yO, yC), spacing*0.7, Math.max(2, Math.abs(yO - yC))); ctx.shadowBlur = 0; }
             ctx.globalAlpha = 1.0;
-
-            const p = analyzeCandlePatterns(all, i);
-            if(p) { ctx.fillStyle = "#fff"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center"; ctx.fillText(p.name, x, c.close >= c.open ? yL + 35 : yH - 25); }
+            const pattern = analyzeCandlePatterns(all, i);
+            if(pattern) { ctx.fillStyle = "#ffffff"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center"; const labelY = c.close >= c.open ? yL + 35 : yH - 25; ctx.fillText(pattern.name, x, labelY); }
             const f = fractals.find(fr => fr.index === i);
-            if(f) { ctx.fillStyle = f.type === 'top' ? "#f35" : "#0f8"; ctx.font = "bold 18px Arial"; ctx.fillText(f.type === 'top' ? "▼" : "▲", x, f.type === 'top' ? yH - 12 : yL + 22); }
+            if(f) { ctx.fillStyle = f.type === 'top' ? "#ff3355" : "#00ff88"; ctx.font = "bold 16px Arial"; ctx.fillText(f.type === 'top' ? "▼" : "▲", x, f.type === 'top' ? yH - 12 : yL + 24); }
         });
-        
-        const cY = centerY + (midP - lastPrice) * scaleY;
-        priceTag.style.top = (cY - 15) + "px"; priceTag.style.background = lastPrice >= current.open ? "#00ff88" : "#ff3355"; priceTag.innerText = lastPrice.toFixed(midP > 10 ? 2 : 5);
+        const currentY = centerY + (midP - lastPrice) * scaleY;
+        priceTag.style.top = (currentY - 15) + "px";
+        priceTag.style.background = lastPrice >= current.open ? "#00ff88" : "#ff3355";
+        priceTag.innerText = lastPrice.toFixed(midP > 10 ? 2 : 5);
         requestAnimationFrame(draw);
     }
 
-    // --- BLOCO DE CONTROLES ADAPTADO PARA PC E MOBILE ---
-    
-    // Suporte para Mouse (PC)
-    canvas.addEventListener('mousedown', e => { 
-        isDragging = true; 
-        lastX = e.clientX; 
-        lastY = e.clientY; 
-    });
-    window.addEventListener('mousemove', e => { 
-        if(isDragging) { 
-            dragX += e.clientX - lastX; 
-            dragY += e.clientY - lastY; 
-            lastX = e.clientX; 
-            lastY = e.clientY; 
-        } 
-    });
-    window.addEventListener('mouseup', () => { isDragging = false; });
-    
-    // Zoom com a rodinha do mouse (PC)
-    canvas.addEventListener('wheel', e => { 
-        e.preventDefault(); 
-        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1; 
-        spacing = Math.min(Math.max(spacing * zoomFactor, 5), 400); 
-        zoomY = Math.min(Math.max(zoomY * zoomFactor, 0.1), 30); 
-    }, { passive: false });
+    // --- CONTROLES DE PC ADICIONADOS ---
+    canvas.addEventListener('mousedown', e => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
+    window.addEventListener('mousemove', e => { if(isDragging) { dragX += e.clientX - lastX; dragY += e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; } });
+    window.addEventListener('mouseup', () => isDragging = false);
+    canvas.addEventListener('wheel', e => { e.preventDefault(); const delta = e.deltaY > 0 ? 0.9 : 1.1; spacing = Math.min(Math.max(spacing * delta, 5), 150); zoomY = Math.min(Math.max(zoomY * delta, 0.1), 30); }, { passive: false });
 
-    // Suporte para Toque (Mobile - Mantido como original)
+    // Mantendo suporte para Touch
     canvas.addEventListener('touchstart', e => { isDragging = true; if(e.touches.length === 1) { lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; } else if (e.touches.length === 2) { lastDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); } });
     canvas.addEventListener('touchmove', e => { e.preventDefault(); if(e.touches.length === 1 && isDragging) { dragX += e.touches[0].clientX - lastX; dragY += e.touches[0].clientY - lastY; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; } else if (e.touches.length === 2) { let dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); let delta = dist / lastDist; spacing = Math.min(Math.max(spacing * delta, 5), 400); zoomY = Math.min(Math.max(zoomY * delta, 0.1), 30); lastDist = dist; } }, { passive: false });
     canvas.addEventListener('touchend', () => { isDragging = false; });
-
+    
     connect('R_100'); draw(); updateFinanceUI();
 </script>
 </body>
