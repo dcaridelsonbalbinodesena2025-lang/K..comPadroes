@@ -317,7 +317,7 @@
         resistances.forEach(r => { ctx.setLineDash([5, 5]); ctx.strokeStyle = "rgba(255, 51, 85, 0.4)"; ctx.beginPath(); ctx.moveTo(0, centerY + (midP - r) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - r) * scaleY); ctx.stroke(); });
         supports.forEach(s => { ctx.setLineDash([5, 5]); ctx.strokeStyle = "rgba(0, 255, 136, 0.4)"; ctx.beginPath(); ctx.moveTo(0, centerY + (midP - s) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - s) * scaleY); ctx.stroke(); });
 
-        ctx.setLineDash([]); ctx.lineWidth = 1;
+        ctx.setLineDash([]); ctx.lineWidth = 0.5;
         if(lta) { ctx.strokeStyle = "rgba(0, 255, 136, 0.6)"; ctx.beginPath(); ctx.moveTo(offX + lta.p1.index * spacing, centerY + (midP - lta.p1.price) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - lta.p2.price) * scaleY); ctx.stroke(); }
         if(ltb) { ctx.strokeStyle = "rgba(255, 51, 85, 0.6)"; ctx.beginPath(); ctx.moveTo(offX + ltb.p1.index * spacing, centerY + (midP - ltb.p1.price) * scaleY); ctx.lineTo(canvas.width, centerY + (midP - ltb.p2.price) * scaleY); ctx.stroke(); }
 
