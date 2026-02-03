@@ -20,6 +20,11 @@
         .fin-item { display: flex; justify-content: space-between; cursor: pointer; border-bottom: 1px solid #2d3648; padding: 4px 0; }
         .fin-value { color: var(--green); font-weight: bold; margin-left: 15px; }
 
+        /* ESTILO DOS BOTOES DE TEMPO */
+        .time-selector { display: flex; gap: 5px; margin-top: 5px; }
+        .time-btn { flex: 1; background: #1c232e; border: 1px solid var(--blue); color: white; padding: 6px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; transition: 0.3s; }
+        .time-btn.active { background: var(--blue); box-shadow: 0 0 10px var(--blue); }
+
         .watermark { position: absolute; bottom: 20px; left: 20px; font-size: 18px; font-weight: bold; color: var(--blue); text-shadow: 0 0 10px #fff, 0 0 20px var(--blue); z-index: 500; pointer-events: none; border: 1px solid rgba(255,255,255,0.3); padding: 5px 10px; border-radius: 5px; background: rgba(0,0,0,0.3); }
         .asset-btn { position: absolute; top: 15px; left: 15px; background: var(--panel); padding: 12px 18px; border-radius: 8px; border: 1px solid #2d3648; cursor: pointer; display: flex; align-items: center; gap: 10px; font-weight: bold; width: 240px; box-sizing: border-box; }
         .asset-menu { display: none; position: absolute; top: 70px; left: 15px; background: var(--panel); border: 1px solid #2d3648; border-radius: 8px; width: 280px; max-height: 70vh; overflow-y: auto; z-index: 1001; }
@@ -30,7 +35,6 @@
         #timer-box { position: absolute; right: 15px; top: 15px; background: rgba(17, 21, 28, 0.95); padding: 10px 20px; border-radius: 8px; border: 2px solid var(--blue); text-align: center; }
         #timer { font-size: 22px; font-weight: bold; font-family: monospace; display: block; }
         
-        /* NOVO CRONOMETRO ESTILO */
         #stopwatch-box { position: absolute; right: 145px; top: 15px; background: rgba(17, 21, 28, 0.95); padding: 10px 20px; border-radius: 8px; border: 2px solid var(--green); text-align: center; cursor: pointer; user-select: none; }
         #stopwatch { font-size: 22px; font-weight: bold; font-family: monospace; display: block; color: var(--green); }
 
@@ -51,6 +55,10 @@
     <div class="fin-item" ondblclick="editFinance('banca')">BANCA: <span class="fin-value" id="val-banca">R$ 1000.00</span></div>
     <div class="fin-item" ondblclick="editFinance('payout')">PAYOUT: <span class="fin-value" id="val-payout">85%</span></div>
     <div class="fin-item" ondblclick="editFinance('percent')">ENTRADA: <span class="fin-value" id="val-percent">1%</span></div>
+    <div class="time-selector">
+        <button class="time-btn active" id="btn-m1" onclick="changeTime(60)">M1</button>
+        <button class="time-btn" id="btn-m5" onclick="changeTime(300)">M5</button>
+    </div>
 </div>
 
 <div class="watermark">K.COM BRAIN〽️(Aridelson B.)</div>
@@ -85,9 +93,20 @@
     const trendDisplay = document.getElementById('trend-info');
     const signalAlert = document.getElementById('signal-alert');
 
-    // VARIAVEIS DO CRONOMETRO NOVO
     const stopwatchTxt = document.getElementById('stopwatch');
     let swTime = 0, swInterval = null, swRunning = false;
+
+    // VARIAVEIS DE ESCALA
+    let currentGranularity = 60;
+    let currentSymbol = 'R_100';
+
+    function changeTime(seconds) {
+        currentGranularity = seconds;
+        document.getElementById('btn-m1').classList.toggle('active', seconds === 60);
+        document.getElementById('btn-m5').classList.toggle('active', seconds === 300);
+        history = []; current = null; zigzagPoints = []; lastMinute = -1;
+        connect(currentSymbol);
+    }
 
     function toggleStopwatch() {
         if(swRunning) { clearInterval(swInterval); swRunning = false; stopwatchTxt.style.color = 'var(--yellow)'; }
@@ -183,7 +202,7 @@
             if(all[i].high > all[i-1].high && all[i].high > all[i-2].high && all[i].high > all[i+1].high && all[i].high > all[i+2].high) {
                 fractals.push({ index: i, type: 'top', price: all[i].high });
             }
-            if(all[i].low < all[i-1].low && all[i].low < all[i-2].low && all[i].low < all[i+1].low && all[i].low < all[i+2].low) {
+            if(all[i].low < all[i-2].low && all[i].low < all[i-1].low && all[i].low < all[i+1].low && all[i].low < all[i+2].low) {
                 fractals.push({ index: i, type: 'bottom', price: all[i].low });
             }
         }
@@ -219,6 +238,7 @@
     function sel(id, nome) { 
         document.getElementById('asset-display').innerText = nome;
         history = []; current = null; zigzagPoints = []; toggleMenu();
+        currentSymbol = id;
         if(id !== "NONE") connect(id);
     }
 
@@ -239,23 +259,27 @@
     function connect(symbol) {
         if(socket) socket.close();
         socket = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
-        socket.onopen = () => { socket.send(JSON.stringify({ ticks_history: symbol, end: "latest", count: 100, style: "candles", granularity: 60, subscribe: 1 })); };
+        socket.onopen = () => { socket.send(JSON.stringify({ ticks_history: symbol, end: "latest", count: 100, style: "candles", granularity: currentGranularity, subscribe: 1 })); };
         socket.onmessage = (msg) => {
             const data = JSON.parse(msg.data);
             if(data.candles) { history = data.candles; current = history.pop(); updateAnalisis(); }
             if(data.ohlc) {
                 lastPrice = parseFloat(data.ohlc.close);
-                const now = new Date(); const sec = now.getSeconds();
-                if (lastMinute !== -1 && now.getMinutes() !== lastMinute) {
+                const now = new Date(); 
+                
+                // CALCULO DE TEMPO RESTANTE PARA M1 E M5
+                const epochSecs = data.ohlc.open_time;
+                const secondsInBar = (Math.floor(Date.now() / 1000) - epochSecs);
+                const remaining = currentGranularity - secondsInBar;
+
+                if (lastMinute !== -1 && now.getMinutes() % (currentGranularity/60) === 0 && secondsInBar < 2) {
                     if (operacaoAtiva) validarResultado(current);
-                    
                     if (sinalPendente) {
                         valorApostaAtual = emGale === 0 ? (bancaAtual * (percentualUso / 100)) : valorApostaAtual * 2;
                         bancaAtual -= valorApostaAtual; updateFinanceUI();
                         operacaoAtiva = { dir: sinalPendente.dir, precoEntrada: lastPrice, valorRiscado: valorApostaAtual };
                         sinalPendente = null; signalAlert.style.display = 'none';
                     }
-
                     if (current && !operacaoAtiva && emGale === 0) {
                         history.push({...current});
                         const pattern = analyzeCandlePatterns(history, history.length - 1);
@@ -269,12 +293,15 @@
                     } else if (current) {
                         history.push({...current});
                     }
-                    
                     current = { time: data.ohlc.open_time, open: lastPrice, high: lastPrice, low: lastPrice, close: lastPrice };
                     updateAnalisis();
                 } else if(current) { current.close = lastPrice; current.high = Math.max(current.high, lastPrice); current.low = Math.min(current.low, lastPrice); }
+                
                 lastMinute = now.getMinutes();
-                timerTxt.innerText = `00:${(60 - sec).toString().padStart(2, '0')}`;
+                
+                let minRem = Math.floor(remaining / 60);
+                let secRem = remaining % 60;
+                timerTxt.innerText = `${minRem.toString().padStart(2, '0')}:${secRem.toString().padStart(2, '0')}`;
             }
         };
     }
